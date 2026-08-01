@@ -1,0 +1,17 @@
+﻿index,task,task_chinese,metric,model,mean,std
+0,menstrual_onset_24h,24小时内月经开始,auprc,FemMHC-Onset,0.045107034000949765,0.005363957858031609
+1,menstrual_onset_24h,24小时内月经开始,auprc,OpenMHC-Onset,0.03471539396586227,0.0007140973671175874
+2,menstrual_onset_24h,24小时内月经开始,auroc,FemMHC-Onset,0.5838650270302382,0.012019908201743005
+3,menstrual_onset_24h,24小时内月经开始,auroc,OpenMHC-Onset,0.5227945107823918,0.007285134260485828
+4,menstrual_onset_24h,24小时内月经开始,brier,FemMHC-Onset,0.03200150802836933,9.965773655585144e-06
+5,menstrual_onset_24h,24小时内月经开始,brier,OpenMHC-Onset,0.032039266675635,1.0047050836794408e-05
+6,menstrual_onset_24h,24小时内月经开始,ece_10,FemMHC-Onset,0.0018702963708721332,0.0008276305260644249
+7,menstrual_onset_24h,24小时内月经开始,ece_10,OpenMHC-Onset,0.0019858782024961,0.0006143686155979038
+8,menstrual_onset_72h,72小时内月经开始,auprc,FemMHC-Onset,0.11477109666176803,0.006252166965454572
+9,menstrual_onset_72h,72小时内月经开始,auprc,OpenMHC-Onset,0.11025013638386107,0.003992340325015564
+10,menstrual_onset_72h,72小时内月经开始,auroc,FemMHC-Onset,0.5730797529216501,0.0186673525051778
+11,menstrual_onset_72h,72小时内月经开始,auroc,OpenMHC-Onset,0.5759586263538833,0.0195888466471085
+12,menstrual_onset_72h,72小时内月经开始,brier,FemMHC-Onset,0.08825313547286956,7.280741576171703e-05
+13,menstrual_onset_72h,72小时内月经开始,brier,OpenMHC-Onset,0.08848077494971296,2.848753829274966e-05
+14,menstrual_onset_72h,72小时内月经开始,ece_10,FemMHC-Onset,0.009456356056137732,0.005998174788024393
+15,menstrual_onset_72h,72小时内月经开始,ece_10,OpenMHC-Onset,0.016612558488435233,0.00566421247696424

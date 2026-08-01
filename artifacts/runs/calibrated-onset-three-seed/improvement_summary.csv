@@ -1,0 +1,9 @@
+﻿task,task_chinese,metric,improvement_mean_percent,improvement_std_percent,seeds_improved,strict_ci_seeds
+menstrual_onset_24h,24小时内月经开始,auprc,30.164063277277645,17.82856409158425,3,2
+menstrual_onset_24h,24小时内月经开始,auroc,11.715654826612784,3.765446100206303,3,1
+menstrual_onset_24h,24小时内月经开始,brier,0.11784013199613724,0.05736002644178228,3,2
+menstrual_onset_24h,24小时内月经开始,ece_10,2.847194459595379,40.32047435176439,2,0
+menstrual_onset_72h,72小时内月经开始,auprc,4.20740416611898,7.062530273550988,2,0
+menstrual_onset_72h,72小时内月经开始,auroc,-0.37979257340804057,5.903888959468554,1,0
+menstrual_onset_72h,72小时内月经开始,brier,0.2572536653574153,0.11096862110792349,3,0
+menstrual_onset_72h,72小时内月经开始,ece_10,43.882247968470665,23.47104624985242,3,0

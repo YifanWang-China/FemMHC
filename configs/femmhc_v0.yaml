@@ -1,0 +1,54 @@
+project: FemMHC
+stage: female_wearable_continual_pretraining_v1
+
+backbone:
+  family: OpenMHC-LSM2
+  checkpoint: artifacts/checkpoints/lsm2-daily/loss=0.2706.ckpt
+  sequence_length: 1440
+  patch_size: 10
+  embedding_dimension: 384
+  freeze_backbone_initially: true
+
+model:
+  sensor_metadata_embedding: true
+  preserve_openmhc_position_factorization: true
+  anchored_shared_channels:
+    steps: watch_steps
+    heart_rate: watch_hr
+    sleep_state: sleep_asleep
+  adapter_experts: 3
+  adapter_rank: 32
+  minimum_patch_observed_fraction: 0.5
+
+objectives:
+  masked_patch_reconstruction:
+    weight: 1.0
+  sensor_set_consistency:
+    weight: 1.0
+    channel_drop_probability: 0.35
+  openmhc_representation_preservation:
+    weight: 1.0
+  within_participant_temporal_order:
+    weight: 0.5
+
+data:
+  split_unit: participant
+  seed: 42
+  cohorts:
+    openmhc_xs:
+      root: datasets/openmhc-xs
+      role: general_teacher_and_female_continual_pretraining
+    mcphases:
+      archive: datasets/mcphases-1.0.0.zip
+      processed: processed/mcphases
+      role: menstrual_transfer
+
+evaluation:
+  protocols:
+    - frozen_linear_probe
+    - few_shot_1_percent
+    - few_shot_5_percent
+    - few_shot_10_percent
+    - full_finetune
+    - leave_one_cohort_out
+  participant_bootstrap_draws: 2000

@@ -1,0 +1,60 @@
+# Python environments and caches
+.venv/
+.pytest_cache/
+**/__pycache__/
+*.py[cod]
+
+# Local tooling
+.codex_tmp/
+.playwright-cli/
+.idea/
+.vscode/
+
+# Raw and processed datasets
+datasets/
+数据集/
+processed/
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.parquet
+*.arrow
+
+# Model weights, embeddings and training logs
+*.ckpt
+*.pt
+*.pth
+*.npy
+*.npz
+*.log
+artifacts/cache/
+artifacts/checkpoints/
+artifacts/embeddings/
+artifacts/run_manifest.json
+artifacts/smoke/
+
+# Keep only compact, aggregate experiment outputs under artifacts/runs.
+artifacts/runs/*
+!artifacts/runs/three-seed-summary/
+!artifacts/runs/onset-three-seed-summary/
+!artifacts/runs/calibrated-onset-three-seed/
+
+# Product prototypes and superseded W3M/LH-window experiments are local only.
+velune-ui/
+src/w3m/
+configs/lh_surge_window_head.yaml
+configs/w3m_lsm2_ring.yaml
+scripts/evaluate_lh_window_baseline.py
+scripts/prepare_lh_window_osf.py
+scripts/smoke_ring_adapter.py
+tests/test_task_heads.py
+
+# Local planning documents and third-party papers/templates
+open MHC.pdf
+W3M开发说明.md
+穿戴世界模型数据集调研.md
+数据集清单与下载状态.md
+OpenMHC-Female_*.md
+OpenMHC-Female_*.csv
+requirements-w3m.txt

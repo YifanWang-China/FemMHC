@@ -1,0 +1,37 @@
+Create a high-end BioRender-style scientific vector schematic for Figure 2 of a top-tier machine learning / digital health paper, titled conceptually “OpenMHC-Female: Women-Centric Wearable Foundation Model”.
+
+Scientific purpose:
+Show how pretrained OpenMHC-LSM2 parameters are adapted to multimodal ring signals and continued-pretrained on women-centered wearable cohorts, producing a shared encoder evaluated on menstrual, perinatal, sleep, fatigue, and mood tasks under a rigorous benchmark protocol. This is a foundation encoder, NOT a world model, NOT an agent, and NOT a treatment system.
+
+Scene and layout:
+Wide 16:9 white manuscript panel, left-to-right architecture across the upper 75%, with a clean horizontal benchmark ribbon across the lower 25%.
+
+Upper architecture, left column — multimodal inputs:
+Six aligned mini time-series strips with small minimal icons and short exact labels: “Heart rate”, “HRV”, “Skin temperature”, “Sleep”, “Activity”, “Missingness”. Show seven consecutive nights as compact aligned sequences. Above or behind them, subtle women lifecycle silhouettes representing menstrual cycle, pregnancy, postpartum, and general adult women, inclusive and non-photorealistic. Add a small label “7-day ring window”.
+
+Upper architecture, center-left — ring signal adapter:
+A clean module labeled “Ring adapter”. Inside show four short sub-blocks: “Normalize”, “Mask”, “Patch”, “Channel tokens”. Make missing intervals visibly masked with pale gray gaps. Use arrows from all sensor strips into this module.
+
+Upper architecture, center — pretrained shared encoder:
+A prominent navy-outlined Transformer stack labeled “OpenMHC-LSM2 encoder”. Add a small gold badge above it reading “Pretrained weights”. Show repeated encoder blocks with attention and feed-forward motifs, no brain icon. Add a small two-stage training cue: first a snowflake over most blocks labeled “Freeze”, then a partially open lock over the last blocks labeled “Unfreeze last blocks”. Output a compact teal vector labeled “384-d embedding”.
+
+Women-centered continued pretraining should feed into the encoder from above as three clean dataset cards: “Cycle cohorts”, “Pregnancy cohorts”, “Sleep + mood cohorts”. Connect them with thin coral/amber arrows to the adapter/encoder. Along this arrow place three tiny objective chips: “Masked modeling”, “Cross-modal alignment”, “Temporal consistency”. Do not show forecasting or actions.
+
+Upper architecture, right — downstream heads:
+From the shared 384-d embedding branch into three colored task groups with simple icons and short labels.
+1. Teal group “Menstrual health”: “Onset”, “Symptoms”, “Phase”.
+2. Amber group “Perinatal”: “Gestational age”, “Fatigue”, “Recovery”.
+3. Coral group “Sleep + mood”: “Insomnia”, “Fatigue”, “Mood”.
+Each task should end in small probability bars or a scalar regression gauge, visually indicating supervised task heads.
+
+Lower benchmark ribbon:
+A pale gray-blue bordered strip labeled “Unified benchmark”. Show a fair comparison from two small encoder boxes: “Original LSM2” versus “OpenMHC-Female”, both feeding into the exact same box “Frozen encoder + same linear probe”. Then show five compact evaluation tiles with short labels: “Participant split”, “Few-shot 1–100%”, “Missing channels”, “Calibration”, “Subgroup fairness”. End with a result card showing upward arrows for “AUPRC / ρ / r / Skill” and downward arrows for “MAE / Brier / ECE”. Make it clear that arrows indicate evaluation directions, not achieved results.
+
+Color and style:
+Nature Portfolio / NeurIPS / BioRender-like scientific schematic. White background; text/navy #111827; teal #22A7B5 for menstrual/shared representations; amber #E9AD3F for perinatal; coral red #EF635B for sleep and mood; pale borders #E5EAF1. Flat vector design, crisp thin strokes, balanced spacing, subtle rounded rectangles, no gradients except very light fills, no 3D, no glossy effects, no decorative DNA, no generic AI brain, no photorealism, no hospital scene.
+
+Text policy:
+Use only the exact short labels requested. Avoid paragraphs. Keep font large, dark, legible, and easy to replace manually. Do not invent metrics or performance numbers. Do not include “world model”, “agent”, “prediction of interventions”, diagnosis, or treatment claims.
+
+Output:
+16:9 manuscript figure, publication-ready, balanced spacing, high information density but uncluttered, suitable as Figure 2 in a top-tier ML/digital health paper.

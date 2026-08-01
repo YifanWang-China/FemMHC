@@ -1,0 +1,3 @@
+﻿task,task_chinese,primary_metric,direction,seeds,baseline_mean,baseline_std,candidate_mean,candidate_std,relative_improvement_from_means_percent,per_seed_relative_improvement_mean_percent,per_seed_relative_improvement_std_percent,seeds_improved,seeds_ci_strictly_above_zero
+menstrual_onset_24h,24小时内月经开始,auprc,higher,3,0.03912556537390723,0.002242988737455966,0.0459275187740891,0.0035932925804788656,17.384933189280062,17.475286925880287,8.61793191979182,3,1
+menstrual_onset_72h,72小时内月经开始,auprc,higher,3,0.10867065405562726,0.0017923161175172819,0.11656695719601573,0.007027553577243438,7.266270005466651,7.302909015692129,7.099643967014664,3,1

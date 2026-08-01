@@ -1,0 +1,13 @@
+# Install the pinned OpenMHC submodule separately:
+#   python -m pip install -e "third_party/OpenMHC[lsm2,hf]"
+#
+# RTX 50-series CUDA build used in the original experiments:
+#   python -m pip install --index-url https://download.pytorch.org/whl/cu130 \
+#     torch==2.13.0+cu130
+
+pytorch-lightning==2.6.5
+jsonargparse[signatures]==4.50.0
+huggingface-hub==1.25.1
+numpy==2.4.6
+pandas==3.0.5
+pyarrow==25.0.0

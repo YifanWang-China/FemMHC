@@ -1,0 +1,3 @@
+[submodule "third_party/OpenMHC"]
+	path = third_party/OpenMHC
+	url = https://github.com/AshleyLab/OpenMHC.git

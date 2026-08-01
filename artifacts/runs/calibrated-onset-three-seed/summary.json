@@ -1,0 +1,9 @@
+{
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "calibration": "validation-only scalar temperature plus class-prior bias",
+  "nested_probability_violations": 0
+}

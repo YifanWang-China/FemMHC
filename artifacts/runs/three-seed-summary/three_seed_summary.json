@@ -1,0 +1,11 @@
+{
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "tasks_improved_by_mean": 7,
+  "tasks_improved_in_all_seeds": 4,
+  "tasks_with_strict_ci_in_all_seeds": 0,
+  "tasks_total": 13
+}
