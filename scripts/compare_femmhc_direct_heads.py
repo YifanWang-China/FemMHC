@@ -48,12 +48,13 @@ def task_target(task, labels, hormones, rows):
 
 def predict(checkpoint_path: Path, embedding_path: Path):
     artifact = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    head_class = (
-        McPhasesV2TaskHeads
-        if artifact.get("task_head_version") == "v2"
-        else McPhasesTaskHeads
-    )
-    heads = head_class(384).eval()
+    if artifact.get("task_head_version") == "v2":
+        heads = McPhasesV2TaskHeads(
+            384,
+            linear_cycle_head=bool(artifact.get("linear_cycle_head", False)),
+        ).eval()
+    else:
+        heads = McPhasesTaskHeads(384).eval()
     heads.load_state_dict(artifact["task_heads_state_dict"])
     embedding = np.load(embedding_path)
     usable = np.isfinite(embedding).all(axis=1)
@@ -111,6 +112,11 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--bootstrap-draws", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--task",
+        action="append",
+        help="Restrict the comparison to one or more task names.",
+    )
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -144,6 +150,8 @@ def main() -> None:
         if baseline == candidate:
             continue
         for task in MCPHASES_TASKS:
+            if args.task and task.name not in args.task:
+                continue
             target = task_target(task, labels, hormones, rows)
             mask = (
                 (sample_split == "test")

@@ -14,13 +14,14 @@ def main() -> None:
     parser.add_argument("--run-root", type=Path, required=True)
     parser.add_argument("--seed", action="append", type=int, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--comparison-dir", default="calibrated-onset")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     metric_frames: list[pd.DataFrame] = []
     bootstrap_frames: list[pd.DataFrame] = []
     for seed in args.seed:
-        root = args.run_root / f"seed-{seed}" / "calibrated-onset"
+        root = args.run_root / f"seed-{seed}" / args.comparison_dir
         metrics = pd.read_csv(root / "calibrated_onset_metrics.csv")
         metrics["seed"] = seed
         metric_frames.append(metrics)

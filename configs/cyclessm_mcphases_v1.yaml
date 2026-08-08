@@ -1,0 +1,80 @@
+experiment: mcphases-personal-memory-cyclessm-v1
+status: development-frozen
+
+data:
+  processed_dir: processed/mcphases
+  participants: 42
+  indexed_days: 5659
+  usable_days: 5546
+  participant_intervals: 62
+  history_days: 60
+  minimum_history_days: 7
+  split_unit: participant_id
+  calendar_gaps_are_explicit: true
+
+daily_representation:
+  source: femmhc-dual-v4
+  dimension: 768
+  frozen: true
+
+matched_models:
+  hidden_dim: 96
+  dropout: 0.1
+  models:
+    last_day_mlp:
+      trainable_parameters: 150148
+    gru:
+      trainable_parameters: 159892
+    transformer:
+      trainable_parameters: 156484
+      causal_attention: true
+    cyclessm:
+      version: selective-cycle-ssm-v2
+      trainable_parameters: 171780
+      personal_causal_memory: true
+      modes: 8
+      minimum_period_days: 18
+      maximum_period_days: 45
+
+primary_tasks:
+  - cycle_phase
+  - menstrual_onset_24h
+  - menstrual_onset_72h
+
+secondary_tasks:
+  - cramps
+  - mood_swing
+  - fatigue
+  - sleep_issue
+  - perceived_stress
+  - bloating
+
+excluded_as_primary:
+  flow_volume:
+    reason: all-day target is dominated by zero-flow days and loses to a constant predictor
+    replacement: hurdle model with onset risk plus conditional flow severity
+
+development:
+  optimizer: adamw
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  batch_size: 128
+  maximum_epochs: 50
+  early_stopping_patience: 8
+  model_seeds: [42, 43, 44]
+
+publication_evaluation:
+  outer_protocol: leave-one-participant-out
+  inner_protocol: participant-grouped validation
+  bootstrap_unit: participant_id
+  bootstrap_resamples: 2000
+  mandatory_baselines:
+    - constant_or_prevalence
+    - last_day_mlp
+    - gru
+    - causal_transformer
+    - openmhc_dual
+  gate:
+    require_three_seeds_same_direction: true
+    require_better_than_simple_baseline: true
+    require_no_future_day_in_history: true

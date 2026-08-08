@@ -1,0 +1,85 @@
+project: FemMHC
+stage: joint_female_health_v1
+
+input:
+  representation: native_plus_adapted
+  embedding_dimension: 768
+  maximum_history_days: 60
+  optional_context:
+    - age
+    - life_stage
+    - menstrual_log_history
+
+model:
+  architecture: dual_path_router
+  hidden_dimension: 128
+  cycle_modes: 8
+  graph_heads: 4
+  dropout: 0.0
+  routing_initial_logit: -2.0
+  routing_initial_probability: 0.1192
+  optional_circular_phase_head:
+    enabled_in_default_model: false
+    phase_order: [follicular, fertility_ovulation, luteal, menstrual]
+    trainable_scope: circular_phase_head_only
+    auxiliary_geometry_weight: 0.25
+    logit_scale: 4.0
+    learning_rate: 0.01
+    maximum_steps: 300
+    checkpoint_selection: final_step
+  health_domains:
+    - menstrual
+    - sleep_recovery
+    - affect_stress
+    - autonomic
+    - activity_load
+    - cardiometabolic
+    - life_stage
+    - context
+
+training:
+  split_unit: participant
+  seeds: [17, 42, 73]
+  maximum_steps: 1000
+  validate_every_steps: 100
+  validation_batches_per_cohort: 8
+  cohort_sampling_temperature: 0.5
+  openmhc_auxiliary_tasks: 32
+  openmhc_daily_physiology_auxiliary_tasks: 7
+  openmhc_currently_evaluable_tasks: 28
+  partial_label_masking: true
+  balance_tasks_within_domain: true
+  balance_across_domains: true
+  preserve_native_openmhc_branch: true
+  stages:
+    - freeze_openmhc_train_joint_state_and_heads
+    - validation_only_probability_calibration
+
+evaluation:
+  general_capability:
+    protocol: openmhc_xs_32_task_retention
+    target: non_inferiority
+  female_health:
+    protocol: participant_level_nested_cv
+    compare:
+      - independent_single_task_heads
+      - shared_backbone_independent_heads
+      - factorized_health_state_without_graph
+      - global_health_state_graph
+      - gated_global_health_state_graph
+      - task_conditioned_router
+      - dual_path_task_conditioned_router
+      - dual_path_without_cycle_signal
+      - dual_path_fixed_gate
+      - dual_path_assigned_domain_only
+      - dual_path_source_aware
+      - dual_path_cycle_aware
+      - dual_path_cycle_direct
+      - dual_path_task_selected
+      - dual_path_task_selected_soft
+      - dual_path_phase_geometry
+      - dual_path_circular_phase_head
+  transfer:
+    label_fractions: [0.01, 0.05, 0.10, 0.25, 1.0]
+  calibration:
+    metrics: [brier, ece]

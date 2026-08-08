@@ -252,3 +252,54 @@ OPENMHC_SENSOR_DESCRIPTORS: tuple[SensorDescriptor, ...] = (
     SensorDescriptor("workout_functional", "activity", "binary", "wrist", 1.0 / 60.0),
     SensorDescriptor("workout_yoga", "activity", "binary", "wrist", 1.0 / 60.0),
 )
+
+
+PREGNANCY_GA_SENSOR_DESCRIPTORS: tuple[SensorDescriptor, ...] = (
+    SensorDescriptor(
+        "wrist_actigraphy",
+        "activity",
+        "count",
+        "wrist",
+        1.0 / 60.0,
+    ),
+    SensorDescriptor(
+        "ambient_light",
+        "light",
+        "lux",
+        "wrist",
+        1.0 / 60.0,
+    ),
+)
+
+
+WEARABLE_HRV_MENTAL_SENSOR_DESCRIPTORS: tuple[SensorDescriptor, ...] = (
+    SensorDescriptor("steps", "activity", "count", "wrist", 1.0 / 60.0),
+    SensorDescriptor("heart_rate", "heart_rate", "bpm", "wrist", 1.0 / 60.0),
+    SensorDescriptor(
+        "hrv_rmssd",
+        "heart_rate_variability",
+        "millisecond",
+        "wrist",
+        1.0 / 300.0,
+    ),
+    SensorDescriptor("ambient_light", "light", "lux", "wrist", 1.0 / 300.0),
+)
+
+
+AFFECTIVE_DAILY_SENSOR_DESCRIPTORS: tuple[SensorDescriptor, ...] = (
+    SensorDescriptor("steps", "activity", "count", "wrist", 1.0 / 60.0),
+    SensorDescriptor("heart_rate", "heart_rate", "bpm", "wrist", 1.0 / 60.0),
+    SensorDescriptor("sleep_state", "sleep", "binary", "wrist", 1.0 / 60.0),
+)
+
+
+NHANES_FEMALE_SENSOR_DESCRIPTORS: tuple[SensorDescriptor, ...] = (
+    SensorDescriptor(
+        "wrist_activity_log10_mims",
+        "activity",
+        "relative",
+        "wrist",
+        1.0 / 60.0,
+    ),
+    SensorDescriptor("sleep_wear", "sleep", "binary", "wrist", 1.0 / 60.0),
+)

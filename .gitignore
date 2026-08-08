@@ -31,14 +31,25 @@ processed/
 artifacts/cache/
 artifacts/checkpoints/
 artifacts/embeddings/
+artifacts/logs/
 artifacts/run_manifest.json
 artifacts/smoke/
+artifacts/benchmark/
+artifacts/data_profile/
+# Hardware product drafts are local working material, not research code.
+artifacts/智能耳钉硬件方案/
+# Benchmark subgroup maps contain participant identifiers; keep aggregate
+# metrics and provenance sidecars, but never version the identifier map.
+artifacts/benchmark/**/_subgroups.json
 
-# Keep only compact, aggregate experiment outputs under artifacts/runs.
-artifacts/runs/*
-!artifacts/runs/three-seed-summary/
-!artifacts/runs/onset-three-seed-summary/
-!artifacts/runs/calibrated-onset-three-seed/
+# Experiment outputs are generated locally. Existing tracked aggregate summaries
+# remain available for historical reproducibility, but new run artefacts stay local.
+artifacts/runs/
+
+# Locally generated manuscript, delivery, and inspection artefacts.
+output/
+paper/
+tmp/
 
 # Product prototypes and superseded W3M/LH-window experiments are local only.
 velune-ui/

@@ -1,0 +1,75 @@
+project: FemMHC
+experiment: multicohort_female_continual_pretraining_v1
+status: preregistered_before_training
+
+hypothesis: female_multicohort_self_supervision_can_broaden_the_locked_mcphases_adapter_without_erasing_native_openmhc_or_menstrual_structure
+
+initialization:
+  openmhc: artifacts/checkpoints/lsm2-daily/loss=0.2706.ckpt
+  female_adapter: artifacts/checkpoints/femmhc-internal-adapter-rank32-onset2-six-seed42.ckpt
+  internal_adapter_rank: 32
+  internal_adapter_layers: 2
+  openmhc_backbone_frozen: true
+
+training_cohorts:
+  mcphases:
+    split: train
+    participant_days: 4160
+  depress_fitbit:
+    split: train
+    participant_days: 3873
+  inphrsym:
+    split: train
+    participant_days: 2755
+  wearable_hrv_mental:
+    split: train
+    participant_days: 338
+  pregnancy_ga_clock:
+    split: train
+    participant_days: 12096
+
+sampling:
+  unit: cohort_homogeneous_daily_batch
+  cohort_probability: square_root_of_training_days
+  batch_size: 8
+  seed: 42
+
+objectives:
+  masked_patch_reconstruction_weight: 1.0
+  two_corruption_consistency_weight: 0.5
+  locked_female_adapter_preservation_weight: 2.0
+  native_openmhc_preservation_weight: 0.25
+  masked_patch_probability: 0.15
+  sensor_drop_probability: 0.35
+
+optimization:
+  steps: 1000
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  gradient_clip_norm: 1.0
+  checkpoint_selection: final_step
+  validation_early_stopping: false
+  trainable_components:
+    - semantic_sensor_encoder
+    - physiological_regime_adapter_bank
+    - internal_transformer_adapters
+    - reconstruction_head
+
+stage_a_evaluation:
+  downstream_architecture: shared_backbone_gru
+  downstream_hidden_dimension: 166
+  downstream_seed: 42
+  downstream_steps: 1000
+  openmhc_retention_representation: locked_static_adapter_cache
+  female_cohort_representation: multicohort_continual_adapter
+  reference: locked_static_adapter_gru_seed42
+  test_split: sealed
+  success_criteria:
+    - lower_final_validation_loss_than_locked_static_adapter_gru
+    - more_than_half_of_63_primary_metrics_improve
+    - more_than_half_of_33_female_primary_metrics_improve
+    - at_least_three_of_four_female_domains_reduce_validation_loss
+
+decision:
+  if_passed: run_encoder_and_downstream_seeds_17_and_73_without_protocol_changes
+  if_failed: stop_architecture_expansion_and_assess_the_current_work_as_not_iclr_ready

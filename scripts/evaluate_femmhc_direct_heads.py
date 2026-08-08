@@ -96,12 +96,13 @@ def main() -> None:
     result_rows: list[dict[str, object]] = []
     for model_name, checkpoint_path, embedding_path in args.model:
         artifact = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-        head_class = (
-            McPhasesV2TaskHeads
-            if artifact.get("task_head_version") == "v2"
-            else McPhasesTaskHeads
-        )
-        heads = head_class(384).eval()
+        if artifact.get("task_head_version") == "v2":
+            heads = McPhasesV2TaskHeads(
+                384,
+                linear_cycle_head=bool(artifact.get("linear_cycle_head", False)),
+            ).eval()
+        else:
+            heads = McPhasesTaskHeads(384).eval()
         heads.load_state_dict(artifact["task_heads_state_dict"])
         embedding = np.load(embedding_path)
         usable = np.isfinite(embedding).all(axis=1)

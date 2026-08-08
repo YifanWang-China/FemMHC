@@ -50,7 +50,10 @@ def load_bin_logits(checkpoint: Path, embedding: Path) -> tuple[np.ndarray, np.n
     artifact = torch.load(checkpoint, map_location="cpu", weights_only=False)
     if artifact.get("task_head_version") != "v2":
         raise ValueError(f"nested onset evaluation requires a v2 checkpoint: {checkpoint}")
-    heads = McPhasesV2TaskHeads(384).eval()
+    heads = McPhasesV2TaskHeads(
+        384,
+        linear_cycle_head=bool(artifact.get("linear_cycle_head", False)),
+    ).eval()
     heads.load_state_dict(artifact["task_heads_state_dict"])
     values = np.load(embedding)
     usable = np.isfinite(values).all(axis=1)

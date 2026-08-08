@@ -8,7 +8,13 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .heads import ClassificationHead, OrdinalHead, ProbabilisticOutput, RegressionHead
+from .heads import (
+    ClassificationHead,
+    LinearClassificationHead,
+    OrdinalHead,
+    ProbabilisticOutput,
+    RegressionHead,
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,95 @@ MCPHASES_TASKS: tuple[TaskDefinition, ...] = (
     TaskDefinition("estrogen", "尿液雌激素代谢物", "regression", None, None, "mae", 0),
     TaskDefinition("pdg", "尿液孕二醇葡糖苷酸", "regression", None, None, "mae", 0),
 )
+
+PREGNANCY_GA_TASK = TaskDefinition(
+    "gestational_age",
+    "孕周估计",
+    "regression",
+    None,
+    None,
+    "mae_weeks",
+    0,
+)
+
+
+@dataclass(frozen=True)
+class GestationalAgeOutput:
+    prediction: torch.Tensor
+    day_attention: torch.Tensor
+
+
+class PregnancyGAHead(nn.Module):
+    """Model ordered day-to-day dynamics and estimate gestational age."""
+
+    def __init__(
+        self,
+        embed_dim: int,
+        hidden_dim: int = 128,
+        *,
+        maximum_days: int = 14,
+        temporal_heads: int = 4,
+    ) -> None:
+        super().__init__()
+        if embed_dim % temporal_heads:
+            raise ValueError("embed_dim must be divisible by temporal_heads")
+        self.day_position = nn.Parameter(torch.zeros(maximum_days, embed_dim))
+        nn.init.normal_(self.day_position, std=0.02)
+        temporal_layer = nn.TransformerEncoderLayer(
+            d_model=embed_dim,
+            nhead=temporal_heads,
+            dim_feedforward=embed_dim * 2,
+            dropout=0.1,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.temporal_encoder = nn.TransformerEncoder(
+            temporal_layer,
+            num_layers=1,
+            enable_nested_tensor=False,
+        )
+        self.day_attention = nn.Sequential(
+            nn.LayerNorm(embed_dim),
+            nn.Linear(embed_dim, hidden_dim),
+            nn.Tanh(),
+            nn.Linear(hidden_dim, 1),
+        )
+        self.regressor = RegressionHead(embed_dim, hidden_dim=hidden_dim)
+
+    def forward(
+        self,
+        daily_embeddings: torch.Tensor,
+        day_present: torch.Tensor | None = None,
+    ) -> GestationalAgeOutput:
+        if daily_embeddings.ndim != 3:
+            raise ValueError("daily_embeddings must have shape (batch, days, embed_dim)")
+        days = daily_embeddings.shape[1]
+        if days > self.day_position.shape[0]:
+            raise ValueError(
+                f"received {days} days but maximum_days={self.day_position.shape[0]}"
+            )
+        encoded = daily_embeddings + self.day_position[:days].unsqueeze(0)
+        padding_mask = None
+        if day_present is not None:
+            if day_present.shape != daily_embeddings.shape[:2]:
+                raise ValueError("day_present must have shape (batch, days)")
+            if not bool(day_present.any(dim=1).all()):
+                raise ValueError("each measurement needs at least one observed day")
+            padding_mask = ~day_present.bool()
+        encoded = self.temporal_encoder(
+            encoded,
+            src_key_padding_mask=padding_mask,
+        )
+        logits = self.day_attention(encoded).squeeze(-1)
+        if day_present is not None:
+            logits = logits.masked_fill(~day_present.bool(), float("-inf"))
+        weights = torch.softmax(logits, dim=-1)
+        pooled = torch.sum(encoded * weights.unsqueeze(-1), dim=1)
+        return GestationalAgeOutput(
+            prediction=self.regressor(pooled),
+            day_attention=weights,
+        )
 
 
 class McPhasesTaskHeads(nn.Module):
@@ -131,7 +226,7 @@ class McPhasesV2TaskHeads(nn.Module):
     }
     HORMONE_TASKS = {"lh", "estrogen", "pdg"}
 
-    def __init__(self, embed_dim: int) -> None:
+    def __init__(self, embed_dim: int, *, linear_cycle_head: bool = False) -> None:
         super().__init__()
         self.adapters = nn.ModuleDict(
             {
@@ -146,7 +241,12 @@ class McPhasesV2TaskHeads(nn.Module):
             if task.kind == "ordinal":
                 modules[task.name] = OrdinalHead(embed_dim, task.classes or 2)
             elif task.kind == "classification":
-                modules[task.name] = ClassificationHead(embed_dim, task.classes or 2)
+                if task.name == "cycle_phase" and linear_cycle_head:
+                    modules[task.name] = LinearClassificationHead(
+                        embed_dim, task.classes or 2
+                    )
+                else:
+                    modules[task.name] = ClassificationHead(embed_dim, task.classes or 2)
             else:
                 modules[task.name] = RegressionHead(embed_dim)
         self.heads = nn.ModuleDict(modules)
@@ -282,11 +382,14 @@ def masked_task_loss(
 
 
 __all__ = [
+    "GestationalAgeOutput",
     "MCPHASES_TASKS",
     "McPhasesTaskHeads",
     "McPhasesV2TaskHeads",
     "NestedHorizonOutput",
     "NestedOnsetHead",
+    "PREGNANCY_GA_TASK",
+    "PregnancyGAHead",
     "ResidualTaskAdapter",
     "TaskDefinition",
     "class_balanced_focal_loss",
