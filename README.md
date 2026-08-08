@@ -4,6 +4,12 @@ Research code for **FemWear: A Specialized Wearable Foundation Model for Women's
 
 > **Research prototype.** This repository supports reproducible research on cohort-level wearable prediction. It is not a diagnostic, treatment-selection, or unsupervised clinical-deployment system.
 
+## Overview
+
+![FemWear overview: wearable histories are mapped by a frozen OpenMHC-LSM2 backbone with trainable adapters to task-family outputs and a unified evaluation suite.](figures/femwear_overview.png)
+
+*FemWear is a hardware-agnostic specialization layer: causal wearable histories are mapped to 768-dimensional daily embeddings by a frozen OpenMHC-LSM2 backbone with trainable rank-32 adapters. The figure summarizes supported research task families and participant-level evaluation protocols; it is not a clinical decision diagram or a device-specific ring implementation.*
+
 ## What FemWear implements
 
 FemWear retains the pretrained OpenMHC LSM2 patch projection and Transformer encoder, then adds lightweight specialization components:
