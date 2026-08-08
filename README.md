@@ -1,4 +1,4 @@
-# FemWear
+# FemWear: A Specialized Wearable Foundation Model for Women's Health
 
 Research code for **FemWear: A Specialized Wearable Foundation Model for Women's Health**. FemWear parameter-efficiently specializes the public [OpenMHC](https://github.com/AshleyLab/OpenMHC) wearable foundation encoder for heterogeneous women's-health research tasks while preserving a frozen native OpenMHC inference path.
 
