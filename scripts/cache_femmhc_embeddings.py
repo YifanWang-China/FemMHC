@@ -20,27 +20,46 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--femmhc-checkpoint", type=Path)
+    parser.add_argument("--internal-adapter-rank", type=int, default=0)
+    parser.add_argument("--internal-adapter-layers", type=int, default=0)
     parser.add_argument("--processed-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument(
+        "--representation",
+        choices=("adapted", "dual"),
+        default="adapted",
+    )
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
     device = torch.device(args.device)
 
-    source = LSM2Module.load_from_checkpoint(str(args.checkpoint), map_location="cpu")
-    model = FemMHCEncoder(source.model, freeze_backbone=True)
-    del source
     checkpoint_step = 0
     checkpoint_stage = "openmhc_initialization"
+    internal_adapter_rank = int(args.internal_adapter_rank)
+    internal_adapter_layers = int(args.internal_adapter_layers)
+    artifact = None
     if args.femmhc_checkpoint is not None:
         artifact = torch.load(args.femmhc_checkpoint, map_location="cpu", weights_only=False)
-        model.load_state_dict(artifact["student_state_dict"])
+        internal_adapter_rank = int(artifact.get("internal_adapter_rank", internal_adapter_rank))
+        internal_adapter_layers = int(artifact.get("internal_adapter_layers", internal_adapter_layers))
         checkpoint_step = int(artifact.get("steps", 0))
         checkpoint_stage = str(artifact.get("stage", "unknown"))
+    source = LSM2Module.load_from_checkpoint(str(args.checkpoint), map_location="cpu")
+    model = FemMHCEncoder(
+        source.model,
+        freeze_backbone=True,
+        internal_adapter_rank=internal_adapter_rank,
+        internal_adapter_layers=internal_adapter_layers,
+    )
+    del source
+    if artifact is not None:
+        model.load_state_dict(artifact["student_state_dict"])
     model = model.to(device).eval()
 
     total_samples = len(np.load(args.processed_dir / "labels.npy", mmap_mode="r"))
-    embeddings = np.full((total_samples, model.embed_dim), np.nan, dtype=np.float32)
+    output_dimension = model.embed_dim * (2 if args.representation == "dual" else 1)
+    embeddings = np.full((total_samples, output_dimension), np.nan, dtype=np.float32)
     started = time.perf_counter()
     encoded = 0
     with torch.inference_mode():
@@ -68,7 +87,11 @@ def main() -> None:
                     dtype=torch.bfloat16,
                     enabled=device.type == "cuda",
                 ):
-                    output = model(batch)
+                    output = (
+                        model.forward_dual(batch)
+                        if args.representation == "dual"
+                        else model(batch)
+                    )
                 indices = item["sample_index"].numpy()
                 embeddings[indices] = output.pooled.float().cpu().numpy()
                 encoded += len(indices)
@@ -82,6 +105,7 @@ def main() -> None:
         "checkpoint": str(args.femmhc_checkpoint.resolve()) if args.femmhc_checkpoint else None,
         "checkpoint_stage": checkpoint_stage,
         "checkpoint_step": checkpoint_step,
+        "representation": args.representation,
         "shape": list(embeddings.shape),
         "encoded_samples": encoded,
         "excluded_unusable_samples": int(total_samples - encoded),

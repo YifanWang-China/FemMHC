@@ -1,0 +1,63 @@
+experiment: femmhc-affective-dynamics-v2
+status: development
+seed: 42
+
+initialization:
+  openmhc_checkpoint: artifacts/checkpoints/lsm2-daily/loss=0.2706.ckpt
+  female_checkpoint: artifacts/runs/seed-42/femmhc-openmhc-female-v4-best.ckpt
+  freeze_openmhc_backbone: true
+
+data:
+  split_unit: participant_id
+  inphrsym:
+    processed_dir: processed/inphrsym
+    participants_with_sensors: 44
+    participant_days: 4882
+    next_day_history_days: 14
+    minimum_history_days: 3
+  depress_fitbit:
+    processed_dir: processed/depress_fitbit
+    female_participants: 66
+    participant_days: 5728
+    assessment_history_days: 28
+    minimum_history_days: 3
+  sensors:
+    - steps
+    - heart_rate
+    - sleep_state
+  samples_per_day: 1440
+
+training:
+  max_steps: 500
+  batch_size: 16
+  learning_rate: 0.0001
+  validation_pairs: 256
+  validate_every: 100
+  objectives:
+    masked_patch_reconstruction: 1.0
+    sensor_subset_consistency: 1.0
+    native_openmhc_preservation: 10.0
+    temporal_order: 0.5
+    physiology_change: 0.5
+    adjacent_day_contrastive: 0.0
+
+evaluation:
+  development_protocol: fixed_held_out_participants
+  publication_protocol: nested_group_cross_validation
+  outer_folds: 5
+  inner_folds: 3
+  fold_seed: 42
+  model_seeds: [42, 43, 44]
+  bootstrap_resamples: 2000
+  bootstrap_unit: participant_id
+  primary_metrics:
+    classification: auprc
+    regression: mae
+  secondary_metrics:
+    classification: [auroc, balanced_accuracy, brier, participant_macro_auprc]
+    regression: [rmse, spearman, participant_macro_mae]
+  publication_gate:
+    require_out_of_fold_predictions: true
+    require_identical_sample_masks: true
+    require_all_three_seeds_same_direction: true
+    exclude_tasks_with_degenerate_inner_or_test_folds: true

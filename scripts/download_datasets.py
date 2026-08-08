@@ -69,6 +69,7 @@ def download_range(
     part_path: Path,
     start: int,
     end: int,
+    total_size: int,
 ) -> None:
     expected = end - start + 1
     last_error: Exception | None = None
@@ -85,7 +86,11 @@ def download_range(
         try:
             with requests.get(
                 url,
-                headers={**SESSION.headers, **headers},
+                headers={
+                    **SESSION.headers,
+                    "Accept-Encoding": "identity",
+                    **headers,
+                },
                 stream=True,
                 timeout=(30, 240),
             ) as response:
@@ -93,6 +98,18 @@ def download_range(
                     raise RuntimeError(
                         f"Server ignored byte range {request_start}-{end} "
                         f"for {url}: HTTP {response.status_code}"
+                    )
+                expected_content_range = (
+                    f"bytes {request_start}-{end}/{total_size}"
+                )
+                actual_content_range = response.headers.get(
+                    "Content-Range", ""
+                ).lower()
+                if actual_content_range != expected_content_range:
+                    raise RuntimeError(
+                        "Unexpected Content-Range for "
+                        f"{part_path.name}: {actual_content_range!r} != "
+                        f"{expected_content_range!r}"
                     )
                 mode = "ab" if existing else "wb"
                 with part_path.open(mode) as stream:
@@ -145,7 +162,14 @@ def download_parallel(
         max_workers=worker_count
     ) as executor:
         futures = {
-            executor.submit(download_range, url, part_path, start, end): (
+            executor.submit(
+                download_range,
+                url,
+                part_path,
+                start,
+                end,
+                expected_size,
+            ): (
                 start,
                 end,
                 part_path,
@@ -187,7 +211,6 @@ def download_parallel(
             f"{temp.stat().st_size} != {expected_size}"
         )
     os.replace(temp, output)
-    shutil.rmtree(part_dir)
 
 
 def download_file(
@@ -219,6 +242,12 @@ def download_file(
         raise RuntimeError(
             f"MD5 mismatch for {output}: {actual_md5} != {expected_md5}"
         )
+    part_dir = output.parent / (
+        f".{output.name}.parts-"
+        f"{min(workers, max(1, math.ceil(expected_size / (1024 * 1024))))}"
+    )
+    if part_dir.exists():
+        shutil.rmtree(part_dir)
     print(f"VERIFIED: {output}", flush=True)
 
 
@@ -318,6 +347,9 @@ def main() -> int:
             "openmhc",
             "pregnancy",
             "hrv",
+            "qolstress",
+            "weee",
+            "fitbit",
         ),
         default="all",
     )
@@ -362,6 +394,24 @@ def main() -> int:
             raw / "wearable_hrv_sleep_figshare_28509740",
             args.workers,
             args.include_large_raw_hrv,
+        )
+    if args.only in ("all", "qolstress"):
+        download_zenodo(
+            20757481,
+            raw / "qol_stress_zenodo_20757481",
+            args.workers,
+        )
+    if args.only in ("all", "weee"):
+        download_zenodo(
+            6420886,
+            raw / "weee_zenodo_6420886",
+            args.workers,
+        )
+    if args.only in ("all", "fitbit"):
+        download_zenodo(
+            53894,
+            raw / "crowdsourced_fitbit_zenodo_53894",
+            args.workers,
         )
     print("All directly downloadable datasets completed and verified.")
     return 0

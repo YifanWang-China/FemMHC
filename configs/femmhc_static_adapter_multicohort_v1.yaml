@@ -1,0 +1,64 @@
+project: FemMHC
+experiment: static_internal_adapter_multicohort_feasibility_v1
+status: preregistered_before_training
+
+question:
+  representation_transfer: does_the_locked_mcphases_static_adapter_transfer_beyond_menstruation
+  architecture_transfer: does_dual_path_outperform_equal_capacity_gru_and_mmoe_on_the_same_static_embeddings
+
+encoder:
+  source: openmhc_lsm2_daily_loss_0.2706
+  candidate: femmhc_internal_adapter_rank32_onset2_seed42
+  frozen: true
+  trainable_encoder_fraction: 0.011
+  checkpoint_selection: locked_before_multicohort_evaluation
+
+cohorts:
+  - openmhc_xs_retention
+  - mcphases
+  - depress_fitbit
+  - inphrsym
+  - wearable_hrv_sleep
+  - pregnancy_ga_clock
+
+stage_a:
+  purpose: single_seed_feasibility
+  seed: 42
+  split: validation
+  test_split: sealed
+  steps: 1000
+  checkpoint_selection: final_step
+  validation_early_stopping: false
+  arms:
+    openmhc_gru:
+      representation: frozen_openmhc_initialized
+      architecture: shared_backbone
+      hidden_dimension: 166
+    static_adapter_gru:
+      representation: locked_static_adapter
+      architecture: shared_backbone
+      hidden_dimension: 166
+    static_adapter_mmoe:
+      representation: locked_static_adapter
+      architecture: mmoe
+      hidden_dimension: 136
+    static_adapter_dual_path:
+      representation: locked_static_adapter
+      architecture: dual_path_router
+      hidden_dimension: 128
+
+evaluation:
+  primary_tasks: 63
+  female_specific_primary_tasks: 33
+  participant_cluster_bootstrap_replicates: 2000
+  multiple_comparison_correction: holm_within_pair
+  stage_a_success_criteria:
+    representation_transfer:
+      - static_adapter_gru_lower_final_validation_loss_than_openmhc_gru
+      - static_adapter_gru_wins_more_than_half_of_female_tasks
+    architecture_transfer:
+      - static_adapter_dual_path_lower_final_validation_loss_than_static_adapter_gru
+      - static_adapter_dual_path_lower_final_validation_loss_than_static_adapter_mmoe
+      - static_adapter_dual_path_wins_more_than_half_of_female_tasks_against_each
+  next_step_if_passed: run_seeds_17_and_73_without_protocol_changes
+  next_step_if_failed: stop_and_report_negative_transfer_without_hyperparameter_search

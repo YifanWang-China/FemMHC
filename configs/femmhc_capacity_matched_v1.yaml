@@ -1,0 +1,67 @@
+project: FemMHC
+experiment: capacity_matched_architecture_comparison_v1
+status: preregistered_before_training
+
+input:
+  representation: cached_native_plus_adapted_openmhc
+  embedding_dimension: 768
+  maximum_history_days: 60
+  datasets:
+    - openmhc
+    - mcphases
+    - depress_fitbit
+    - inphrsym
+    - wearable_hrv_sleep
+    - pregnancy_ga_clock
+
+models:
+  target_trainable_parameters: 1983696
+  maximum_relative_parameter_gap: 0.01
+  arms:
+    last_day_shared:
+      description: non_temporal_latest_day_mlp_with_shared_heads
+      hidden_dimension: 168
+      expected_trainable_parameters: 1983530
+    shared_backbone:
+      description: causal_gru_temporal_adapter_with_shared_heads
+      hidden_dimension: 166
+      expected_trainable_parameters: 1985683
+    mmoe:
+      description: causal_gru_with_eight_shared_experts_and_task_gates
+      hidden_dimension: 136
+      expected_trainable_parameters: 1967366
+    dual_path_router:
+      description: femmhc_general_gru_plus_cyclessm_and_health_state_router
+      hidden_dimension: 128
+      expected_trainable_parameters: 1983696
+
+training:
+  seeds: [17, 42, 73]
+  steps: 1000
+  batch_size: 16
+  learning_rate: 0.0002
+  weight_decay: 0.01
+  dropout: 0.0
+  routing_initial_logit: -2.0
+  checkpoint_selection: final_step
+  validation_early_stopping: false
+  participant_splits: fixed_existing_splits
+  cohort_sampling_temperature: 0.5
+
+evaluation:
+  split: validation
+  test_split: sealed
+  comparable_primary_tasks: 63
+  female_specific_primary_tasks: 33
+  pairwise_candidate: dual_path_router
+  pairwise_baselines:
+    - last_day_shared
+    - shared_backbone
+    - mmoe
+  participant_cluster_bootstrap_replicates: 2000
+  multiple_comparison_correction: holm_within_model_pair_and_seed
+  success_criteria:
+    - lower_mean_final_validation_loss_than_each_baseline
+    - lower_final_validation_loss_in_at_least_two_of_three_seeds_than_each_baseline
+    - positive_mean_primary_metric_direction_on_more_than_half_of_all_tasks_against_each_baseline
+    - positive_mean_primary_metric_direction_on_more_than_half_of_female_specific_tasks_against_each_baseline

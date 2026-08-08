@@ -64,6 +64,42 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--supervised-weight", type=float, default=0.5)
     parser.add_argument(
+        "--cycle-loss-weight",
+        type=float,
+        default=1.0,
+        help="Relative weight of the cycle-phase group in v2 supervised loss.",
+    )
+    parser.add_argument(
+        "--symptom-loss-weight",
+        type=float,
+        default=1.0,
+        help="Relative weight of the symptom group in v2 supervised loss.",
+    )
+    parser.add_argument(
+        "--onset-loss-weight",
+        type=float,
+        default=1.0,
+        help="Relative weight of the nested onset group in v2 supervised loss.",
+    )
+    parser.add_argument(
+        "--hormone-loss-weight",
+        type=float,
+        default=1.0,
+        help="Relative weight of the hormone group in v2 supervised loss.",
+    )
+    parser.add_argument(
+        "--internal-adapter-rank",
+        type=int,
+        default=0,
+        help="Bottleneck rank for adapters inserted inside the final LSM2 blocks.",
+    )
+    parser.add_argument(
+        "--internal-adapter-layers",
+        type=int,
+        default=0,
+        help="Number of final LSM2 Transformer blocks receiving internal adapters.",
+    )
+    parser.add_argument(
         "--task-head-version",
         choices=("v1", "v2"),
         default="v1",
@@ -71,7 +107,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--task-group",
-        choices=("all", "cycle", "symptoms", "onset", "hormones"),
+        choices=("all", "female_six", "cycle", "symptoms", "onset", "hormones"),
         default="all",
         help="Train all v2 task families or isolate one family for task-specific probing.",
     )
@@ -79,6 +115,11 @@ def parse_args() -> argparse.Namespace:
         "--freeze-student",
         action="store_true",
         help="Freeze the entire FemMHC encoder and train task heads only (matched-head baseline).",
+    )
+    parser.add_argument(
+        "--linear-cycle-head",
+        action="store_true",
+        help="Use a normalized linear cycle head so supervision must reshape the encoder.",
     )
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
@@ -105,15 +146,29 @@ def main() -> None:
     args = parse_args()
     if args.max_steps <= 0 or args.save_every <= 0:
         raise ValueError("--max-steps must be positive")
+    if min(
+        args.cycle_loss_weight,
+        args.symptom_loss_weight,
+        args.onset_loss_weight,
+        args.hormone_loss_weight,
+    ) <= 0:
+        raise ValueError("supervised group weights must be positive")
     if args.task_head_version == "v1" and args.task_group != "all":
         raise ValueError("--task-group is only supported by v2 task heads")
+    if args.task_head_version == "v1" and args.linear_cycle_head:
+        raise ValueError("--linear-cycle-head requires v2 task heads")
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     device = torch.device(args.device)
 
     source = LSM2Module.load_from_checkpoint(str(args.checkpoint), map_location="cpu")
-    student = FemMHCEncoder(source.model, freeze_backbone=True).to(device).train()
+    student = FemMHCEncoder(
+        source.model,
+        freeze_backbone=True,
+        internal_adapter_rank=args.internal_adapter_rank,
+        internal_adapter_layers=args.internal_adapter_layers,
+    ).to(device).train()
     if args.femmhc_init is not None:
         initialization = torch.load(args.femmhc_init, map_location="cpu", weights_only=False)
         student.load_state_dict(initialization["student_state_dict"])
@@ -127,8 +182,13 @@ def main() -> None:
     del source
     reconstruction_head = PatchReconstructionHead(student.embed_dim, student.patch_size).to(device).train()
     order_head = TemporalOrderHead(student.embed_dim).to(device).train()
-    task_head_class = McPhasesV2TaskHeads if args.task_head_version == "v2" else McPhasesTaskHeads
-    task_heads = task_head_class(student.embed_dim).to(device).train()
+    if args.task_head_version == "v2":
+        task_heads = McPhasesV2TaskHeads(
+            student.embed_dim,
+            linear_cycle_head=args.linear_cycle_head,
+        ).to(device).train()
+    else:
+        task_heads = McPhasesTaskHeads(student.embed_dim).to(device).train()
     trainable = [
         parameter
         for module in (student, reconstruction_head, order_head, task_heads)
@@ -231,13 +291,26 @@ def main() -> None:
                 class_weights=onset_class_weights,
             )
             grouped_losses["onset"].append(onset_loss)
-            selected_groups = (
-                grouped_losses.values()
-                if args.task_group == "all"
-                else (grouped_losses[args.task_group],)
-            )
-            group_means = [torch.stack(losses).mean() for losses in selected_groups if losses]
-            return torch.stack(group_means).mean()
+            if args.task_group == "all":
+                selected_names = ("cycle", "symptoms", "onset", "hormones")
+            elif args.task_group == "female_six":
+                selected_names = ("cycle", "symptoms", "onset")
+            else:
+                selected_names = (args.task_group,)
+            group_weights = {
+                "cycle": args.cycle_loss_weight,
+                "symptoms": args.symptom_loss_weight,
+                "onset": args.onset_loss_weight,
+                "hormones": args.hormone_loss_weight,
+            }
+            weighted_means = [
+                (torch.stack(grouped_losses[name]).mean(), group_weights[name])
+                for name in selected_names
+                if grouped_losses[name]
+            ]
+            numerator = sum(loss * weight for loss, weight in weighted_means)
+            denominator = sum(weight for _, weight in weighted_means)
+            return numerator / denominator
         return torch.stack(supervised_losses).mean()
 
     def forward_task_heads(embedding: torch.Tensor):
@@ -286,8 +359,15 @@ def main() -> None:
                 "seed": args.seed,
                 "self_supervised_weight": args.self_supervised_weight,
                 "supervised_weight": args.supervised_weight,
+                "cycle_loss_weight": args.cycle_loss_weight,
+                "symptom_loss_weight": args.symptom_loss_weight,
+                "onset_loss_weight": args.onset_loss_weight,
+                "hormone_loss_weight": args.hormone_loss_weight,
+                "internal_adapter_rank": args.internal_adapter_rank,
+                "internal_adapter_layers": args.internal_adapter_layers,
                 "task_head_version": args.task_head_version,
                 "task_group": args.task_group,
+                "linear_cycle_head": args.linear_cycle_head,
                 "freeze_student": args.freeze_student,
                 "hormone_log_means": hormone_means.tolist(),
                 "hormone_log_stds": hormone_stds.tolist(),

@@ -23,17 +23,34 @@ def sensor_set_consistency_loss(
     return distance.clamp_min(0.0).mean()
 
 
+def preservation_distance(
+    student_embedding: torch.Tensor,
+    teacher_embedding: torch.Tensor,
+) -> torch.Tensor:
+    """Per-example cosine distance from the frozen OpenMHC representation."""
+
+    if student_embedding.shape != teacher_embedding.shape:
+        raise ValueError("student and teacher embeddings must have identical shapes")
+    return (
+        1.0
+        - F.cosine_similarity(
+            student_embedding,
+            teacher_embedding.detach(),
+            dim=-1,
+        )
+    ).clamp_min(0.0)
+
+
 def preservation_loss(
     student_embedding: torch.Tensor,
     teacher_embedding: torch.Tensor,
 ) -> torch.Tensor:
-    """Preserve the frozen general OpenMHC representation during specialization."""
+    """Mean representation-preservation loss used for optimization."""
 
-    if student_embedding.shape != teacher_embedding.shape:
-        raise ValueError("student and teacher embeddings must have identical shapes")
-    student = F.normalize(student_embedding, dim=-1)
-    teacher = F.normalize(teacher_embedding.detach(), dim=-1)
-    return F.smooth_l1_loss(student, teacher)
+    return preservation_distance(
+        student_embedding,
+        teacher_embedding,
+    ).mean()
 
 
 class TemporalOrderHead(nn.Module):
@@ -66,6 +83,100 @@ def temporal_order_loss(
     if target.shape != logits.shape:
         raise ValueError(f"expected temporal labels shaped {tuple(logits.shape)}")
     return F.binary_cross_entropy_with_logits(logits, target)
+
+
+class PhysiologyChangeHead(nn.Module):
+    """Predict within-person day-to-day changes instead of participant identity.
+
+    For each sensor channel the target contains the change in daily mean and
+    daily standard deviation.  The head therefore rewards state-sensitive
+    representations without declaring adjacent days from the same person to be
+    interchangeable positives.
+    """
+
+    def __init__(
+        self,
+        embed_dim: int,
+        channels: int,
+        hidden_dim: int = 128,
+    ) -> None:
+        super().__init__()
+        if embed_dim <= 0 or channels <= 0:
+            raise ValueError("embed_dim and channels must be positive")
+        self.channels = int(channels)
+        self.network = nn.Sequential(
+            nn.LayerNorm(embed_dim * 3),
+            nn.Linear(embed_dim * 3, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, channels * 2),
+        )
+
+    def forward(self, earlier: torch.Tensor, later: torch.Tensor) -> torch.Tensor:
+        if earlier.shape != later.shape or earlier.ndim != 2:
+            raise ValueError("daily embeddings must share shape (batch, embed_dim)")
+        features = torch.cat([earlier, later, later - earlier], dim=-1)
+        return self.network(features)
+
+
+def daily_sensor_statistics(values: torch.Tensor) -> torch.Tensor:
+    """Return finite-value mean and standard deviation for every daily channel."""
+
+    if values.ndim != 3:
+        raise ValueError("values must have shape (batch, channels, samples)")
+    finite = torch.isfinite(values)
+    count = finite.sum(dim=-1).clamp_min(1)
+    clean = torch.where(finite, values, torch.zeros_like(values))
+    mean = clean.sum(dim=-1) / count
+    centered = torch.where(finite, values - mean.unsqueeze(-1), torch.zeros_like(values))
+    variance = centered.square().sum(dim=-1) / count
+    standard_deviation = variance.clamp_min(0.0).sqrt()
+    return torch.cat([mean, standard_deviation], dim=-1)
+
+
+def physiology_change_loss(
+    head: PhysiologyChangeHead,
+    earlier_embedding: torch.Tensor,
+    later_embedding: torch.Tensor,
+    earlier_values: torch.Tensor,
+    later_values: torch.Tensor,
+) -> torch.Tensor:
+    """Robustly regress observed daily-statistic changes from representation pairs."""
+
+    prediction = head(earlier_embedding, later_embedding)
+    with torch.no_grad():
+        target = daily_sensor_statistics(later_values) - daily_sensor_statistics(
+            earlier_values
+        )
+        target = target.clamp(min=-5.0, max=5.0)
+    if prediction.shape != target.shape:
+        raise ValueError(
+            f"change prediction {tuple(prediction.shape)} != target {tuple(target.shape)}"
+        )
+    return F.smooth_l1_loss(prediction, target)
+
+
+def adjacent_day_contrastive_loss(
+    earlier: torch.Tensor,
+    later: torch.Tensor,
+    *,
+    temperature: float = 0.1,
+) -> torch.Tensor:
+    """Symmetric InfoNCE for adjacent days from the same participant."""
+
+    if earlier.shape != later.shape or earlier.ndim != 2:
+        raise ValueError("adjacent embeddings must share shape (batch, embed_dim)")
+    if temperature <= 0:
+        raise ValueError("temperature must be positive")
+    if earlier.shape[0] < 2:
+        return earlier.sum() * 0.0
+    first = F.normalize(earlier, dim=-1)
+    second = F.normalize(later, dim=-1)
+    logits = first @ second.transpose(0, 1) / temperature
+    target = torch.arange(logits.shape[0], device=logits.device)
+    return 0.5 * (
+        F.cross_entropy(logits, target)
+        + F.cross_entropy(logits.transpose(0, 1), target)
+    )
 
 
 def masked_patch_reconstruction_loss(

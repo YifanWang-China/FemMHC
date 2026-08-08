@@ -1,0 +1,48 @@
+project: FemMHC
+experiment: native_preserving_dual_view_residual_router_v1
+status: preregistered_before_training
+
+hypothesis: preserve_native_openmhc_as_the_shared_state_and_expose_the_female_adapter_as_task_selective_residuals
+
+input:
+  representation: locked_native_plus_static_female_adapter_seed42
+  dimension: 768
+  native_view: first_384_dimensions
+  female_view: last_384_dimensions
+  test_split: sealed
+
+candidate:
+  architecture: dual_view_residual_router
+  hidden_dimension: 124
+  trainable_parameters: 1975808
+  native_fallback: female_view_when_native_view_is_absent
+  domain_residual_initialization: exact_zero
+  task_gate_initial_logit: -2.0
+
+baselines:
+  openmhc_gru:
+    trainable_parameters: 1985683
+  static_adapter_gru:
+    trainable_parameters: 1985683
+  static_adapter_mmoe:
+    trainable_parameters: 1967366
+
+training:
+  stage_a_seed: 42
+  steps: 1000
+  batch_size: 16
+  learning_rate: 0.0002
+  weight_decay: 0.01
+  dropout: 0.0
+  checkpoint_selection: final_step
+  validation_early_stopping: false
+  cohort_sampling_temperature: 0.5
+
+stage_a_success_criteria:
+  - lower_final_validation_loss_than_all_three_baselines
+  - more_than_half_of_63_primary_tasks_win_against_each_baseline
+  - more_than_half_of_33_female_primary_tasks_win_against_each_baseline
+
+decision:
+  if_passed: run_seeds_17_and_73_then_participant_cluster_bootstrap
+  if_failed: stop_without_hyperparameter_or_seed_search

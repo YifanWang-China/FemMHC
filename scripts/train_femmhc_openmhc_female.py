@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 from pathlib import Path
 import random
 import time
+from collections import defaultdict
 
 import numpy as np
 import torch
 from torch.nn.utils import clip_grad_norm_
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 from femmhc import (
     FemMHCEncoder,
@@ -23,6 +23,8 @@ from femmhc import (
     mask_sensor_patches,
     masked_patch_reconstruction_loss,
     preservation_loss,
+    preservation_distance,
+    pool_native_openmhc,
     sensor_set_consistency_loss,
 )
 from femmhc.data import OpenMHCFemaleDataset
@@ -43,12 +45,14 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--max-channels", type=int, default=6)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--preservation-weight", type=float, default=10.0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--save-every", type=int, default=250)
+    parser.add_argument("--validation-days", type=int, default=64)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
-    if args.max_steps <= 0 or args.max_channels <= 0 or args.save_every <= 0:
+    if min(args.max_steps, args.max_channels, args.save_every, args.validation_days) <= 0:
         raise ValueError("steps and channel count must be positive")
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -57,7 +61,7 @@ def main() -> None:
 
     source = LSM2Module.load_from_checkpoint(str(args.checkpoint), map_location="cpu")
     student = FemMHCEncoder(source.model, freeze_backbone=True).to(device).train()
-    teacher = copy.deepcopy(student).to(device).eval()
+    teacher = source.model.to(device).eval()
     for parameter in teacher.parameters():
         parameter.requires_grad = False
     del source
@@ -71,13 +75,26 @@ def main() -> None:
     optimizer = torch.optim.AdamW(trainable, lr=args.learning_rate, weight_decay=0.01)
     dataset = OpenMHCFemaleDataset(args.openmhc_root, split="train")
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, pin_memory=device.type == "cuda")
+    validation_dataset = OpenMHCFemaleDataset(args.openmhc_root, split="validation")
+    validation_indices = validation_dataset.balanced_indices(
+        min(len(validation_dataset), args.validation_days * 2),
+        seed=args.seed,
+    )
+    validation_loader = DataLoader(
+        Subset(validation_dataset, validation_indices),
+        batch_size=min(4, args.validation_days),
+        shuffle=False,
+        pin_memory=device.type == "cuda",
+    )
 
     history: list[dict[str, float | int]] = []
     step = 0
     elapsed_offset = 0.0
+    best_validation_preservation = float("inf")
+    best_step = 0
     if args.resume and args.output.is_file():
         checkpoint = torch.load(args.output, map_location="cpu", weights_only=False)
-        if checkpoint.get("stage") != "openmhc_female_specialization":
+        if checkpoint.get("stage") != "openmhc_female_specialization_v3":
             raise ValueError(f"Not an OpenMHC-female checkpoint: {args.output}")
         student.load_state_dict(checkpoint["student_state_dict"])
         reconstruction_head.load_state_dict(checkpoint["reconstruction_head_state_dict"])
@@ -85,23 +102,38 @@ def main() -> None:
         step = int(checkpoint["steps"])
         history = list(checkpoint.get("history", []))
         elapsed_offset = float(checkpoint.get("elapsed_seconds", 0.0))
+        best_validation_preservation = float(
+            checkpoint.get("best_validation_preservation", float("inf"))
+        )
+        best_step = int(checkpoint.get("best_step", 0))
         restore_rng_state(checkpoint)
         print(json.dumps({"event": "resumed", "step": step}), flush=True)
     started = time.perf_counter()
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
-    def save(status: str) -> None:
+    def save(status: str, path: Path | None = None) -> None:
         save_training_checkpoint(
-            args.output,
+            path or args.output,
             {
                 "format_version": 1,
                 "model": "FemMHC",
-                "stage": "openmhc_female_specialization",
+                "stage": "openmhc_female_specialization_v3",
                 "status": status,
                 "source_checkpoint": str(args.checkpoint.resolve()),
                 "seed": args.seed,
                 "steps": step,
                 "max_steps": args.max_steps,
+                "teacher": "native_openmhc_lsm2",
+                "preservation_weight": args.preservation_weight,
+                "validation_days": args.validation_days,
+                "validation_candidate_days": len(validation_indices),
+                "validation_participants": len(
+                    {validation_dataset.participant_ids[index] for index in validation_indices}
+                ),
+                "validation_sampling": "participant_balanced_round_robin",
+                "validation_aggregation": "participant_mean_then_cohort_mean",
+                "best_validation_preservation": best_validation_preservation,
+                "best_step": best_step,
                 "history": history,
                 "elapsed_seconds": elapsed_offset + time.perf_counter() - started,
                 "peak_gpu_memory_gb": torch.cuda.max_memory_allocated(device) / 1024**3 if device.type == "cuda" else None,
@@ -110,6 +142,61 @@ def main() -> None:
                 "optimizer_state_dict": optimizer.state_dict(),
                 **capture_rng_state(),
             },
+        )
+
+    def validation_preservation() -> float:
+        student.eval()
+        participant_losses: dict[str, list[float]] = defaultdict(list)
+        examples = 0
+        with torch.inference_mode():
+            for item in validation_loader:
+                values = item["sensor_values"].to(device, non_blocking=True)
+                present = item["channel_present"].to(device, non_blocking=True)
+                usable = torch.isfinite(
+                    values.reshape(
+                        values.shape[0],
+                        values.shape[1],
+                        -1,
+                        student.patch_size,
+                    )
+                ).float().mean(dim=-1).ge(student.min_observed_fraction).any(dim=(1, 2))
+                if not bool(usable.any()):
+                    continue
+                participant_ids = [
+                    participant_id
+                    for participant_id, keep in zip(
+                        item["participant_id"], usable.cpu().tolist()
+                    )
+                    if keep
+                ]
+                values = values[usable]
+                present = present[usable]
+                with torch.autocast(
+                    device_type=device.type,
+                    dtype=torch.bfloat16,
+                    enabled=device.type == "cuda",
+                ):
+                    student_embedding = student(
+                        SensorBatch(values, OPENMHC_SENSOR_DESCRIPTORS, present)
+                    ).pooled
+                    teacher_embedding = pool_native_openmhc(teacher, values)
+                    distances = preservation_distance(
+                        student_embedding, teacher_embedding
+                    )
+                batch_examples = len(values)
+                for participant_id, distance in zip(
+                    participant_ids,
+                    distances.float().cpu().tolist(),
+                ):
+                    participant_losses[str(participant_id)].append(float(distance))
+                examples += batch_examples
+                if examples >= args.validation_days:
+                    break
+        student.train()
+        return float(
+            np.mean(
+                [np.mean(losses) for losses in participant_losses.values()]
+            )
         )
 
     while step < args.max_steps:
@@ -148,7 +235,9 @@ def main() -> None:
                 subset_output = student(subset)
                 masked_output = student(masked)
                 with torch.no_grad():
-                    teacher_output = teacher(full)
+                    teacher_values = torch.full_like(all_values, torch.nan)
+                    teacher_values[:, selected] = values
+                    teacher_embedding = pool_native_openmhc(teacher, teacher_values)
                 reconstruction = masked_patch_reconstruction_loss(
                     reconstruction_head(masked_output.latent),
                     full.values,
@@ -156,8 +245,12 @@ def main() -> None:
                     patch_size=student.patch_size,
                 )
                 consistency = sensor_set_consistency_loss(full_output.pooled, subset_output.pooled)
-                preservation = preservation_loss(full_output.pooled, teacher_output.pooled)
-                total = reconstruction + consistency + preservation
+                preservation = preservation_loss(full_output.pooled, teacher_embedding)
+                total = (
+                    reconstruction
+                    + consistency
+                    + args.preservation_weight * preservation
+                )
             if not bool(torch.isfinite(total)):
                 raise FloatingPointError(f"non-finite loss at step {step}")
             total.backward()
@@ -176,8 +269,24 @@ def main() -> None:
             history.append(record)
             print(json.dumps(record), flush=True)
             if step % args.save_every == 0:
+                validation_value = validation_preservation()
+                if validation_value < best_validation_preservation:
+                    best_validation_preservation = validation_value
+                    best_step = step
+                    save("best", args.output.with_name(args.output.stem + "-best.ckpt"))
                 save("running")
-                print(json.dumps({"event": "checkpoint", "step": step}), flush=True)
+                print(
+                    json.dumps(
+                        {
+                            "event": "checkpoint",
+                            "step": step,
+                            "validation_preservation": validation_value,
+                            "best_validation_preservation": best_validation_preservation,
+                            "best_step": best_step,
+                        }
+                    ),
+                    flush=True,
+                )
             if step >= args.max_steps:
                 break
 

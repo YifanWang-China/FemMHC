@@ -1,5 +1,5 @@
 project: FemMHC
-stage: female_wearable_continual_pretraining_v1
+stage: female_wearable_dual_representation_v4
 
 backbone:
   family: OpenMHC-LSM2
@@ -19,6 +19,13 @@ model:
   adapter_experts: 3
   adapter_rank: 32
   minimum_patch_observed_fraction: 0.5
+  representations:
+    general_tasks:
+      branch: native_openmhc
+      dimension: 384
+    female_tasks:
+      branch: native_plus_adapted_concatenation
+      dimension: 768
 
 objectives:
   masked_patch_reconstruction:
@@ -27,7 +34,8 @@ objectives:
     weight: 1.0
     channel_drop_probability: 0.35
   openmhc_representation_preservation:
-    weight: 1.0
+    loss: cosine_distance
+    weight: 10.0
   within_participant_temporal_order:
     weight: 0.5
 
@@ -42,13 +50,45 @@ data:
       archive: datasets/mcphases-1.0.0.zip
       processed: processed/mcphases
       role: menstrual_transfer
+    pregnancy_ga_clock:
+      archive: datasets/Pregnancy_GA_Clock_Zenodo_7689724/Ravindra_s2sGAclock_raw_public.zip
+      processed: processed/pregnancy_ga_clock_official
+      role: pregnancy_continual_pretraining_and_gestational_age_transfer
+    wearable_hrv_mental_female:
+      source: datasets/wearable_hrv_sleep_figshare_28509740
+      processed: processed/wearable_hrv_mental_female
+      role: female_sleep_depression_anxiety_external_transfer
+      headline: false
+    nhanes_female:
+      source: datasets/NHANES_2011_2014/PhysioNet_minute_level_step_count_1.0.1
+      processed: processed/nhanes_female
+      role: negative_ablation_not_in_main_model
+      headline: false
+      participants: 6012
+      participant_days: 39153
+      split_participants:
+        train: 4208
+        validation: 902
+        test: 902
 
 evaluation:
+  primary_protocol:
+    name: nested_leave_one_participant_out
+    cohort: mcphases
+    participants: 42
+    inner_group_folds: 3
+    bootstrap_unit: participant
+    bootstrap_draws: 2000
+    tasks:
+      - cycle_phase
+      - flow_volume
+  capacity_control:
+    baseline: native_plus_untrained_adapted_concatenation
+    candidate: native_plus_female_pretrained_adapted_concatenation
+    representation_dimension: 768
   protocols:
     - frozen_linear_probe
-    - few_shot_1_percent
-    - few_shot_5_percent
-    - few_shot_10_percent
-    - full_finetune
-    - leave_one_cohort_out
+    - nested_leave_one_participant_out
+    - equal_dimension_control
+    - openmhc_xs_32_task_capability_retention
   participant_bootstrap_draws: 2000

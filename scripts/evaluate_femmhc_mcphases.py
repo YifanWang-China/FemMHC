@@ -168,13 +168,13 @@ def regression_probe(
     best_alpha = 1.0
     best_mae = np.inf
     for alpha in (0.01, 0.1, 1.0, 10.0, 100.0):
-        model = make_pipeline(StandardScaler(), Ridge(alpha=alpha))
+        model = make_pipeline(StandardScaler(), Ridge(alpha=alpha, solver="lsqr"))
         model.fit(x_train, y_train)
         mae = mean_absolute_error(y_validation, model.predict(x_validation))
         if mae < best_mae:
             best_mae = float(mae)
             best_alpha = alpha
-    final = make_pipeline(StandardScaler(), Ridge(alpha=best_alpha))
+    final = make_pipeline(StandardScaler(), Ridge(alpha=best_alpha, solver="lsqr"))
     final.fit(np.concatenate([x_train, x_validation]), np.concatenate([y_train, y_validation]))
     return final.predict(x_test), best_alpha
 
@@ -199,9 +199,10 @@ def main() -> None:
     sample_split = np.asarray([split_by_user[item] for item in participant])
 
     results: list[dict[str, object]] = []
+    prediction_records: dict[tuple[str, str], dict[str, object]] = {}
     for model_name, embedding_path in args.embedding:
         embeddings = np.load(embedding_path)
-        if embeddings.shape != (len(rows), 384):
+        if embeddings.ndim != 2 or embeddings.shape[0] != len(rows):
             raise ValueError(f"{embedding_path} has unexpected shape {embeddings.shape}")
         usable = np.isfinite(embeddings).all(axis=1)
         for task_index, task in enumerate(MCPHASES_TASKS):
@@ -261,11 +262,20 @@ def main() -> None:
                         "macro_auprc": average_precision_score(one_hot, probabilities, average="macro"),
                     }
             primary = float(metrics[task.primary_metric])
+            primary_prediction = score if task.kind == "ordinal" else prediction
+            primary_score = score if task.kind == "classification" and task.classes == 2 else None
+            prediction_records[(model_name, task.name)] = {
+                "sample_indices": np.flatnonzero(masks["test"]),
+                "target": y_test,
+                "prediction": primary_prediction,
+                "score": primary_score,
+                "participants": participant[masks["test"]],
+            }
             ci_low, ci_high = bootstrap_interval(
                 task,
                 y_test,
-                prediction if task.kind != "ordinal" else score,
-                score if task.kind == "classification" and task.classes == 2 else None,
+                primary_prediction,
+                primary_score,
                 participant[masks["test"]],
                 draws=args.bootstrap_draws,
                 seed=args.seed + task_index,
@@ -341,6 +351,103 @@ def main() -> None:
         )
         comparison.to_csv(
             args.output_dir / "primary_improvements.csv",
+            index=False,
+            encoding="utf-8-sig",
+        )
+
+        paired_rows: list[dict[str, object]] = []
+        for task_index, task in enumerate(MCPHASES_TASKS):
+            baseline_record = prediction_records.get((baseline_name, task.name))
+            candidate_record = prediction_records.get((candidate_name, task.name))
+            if baseline_record is None or candidate_record is None:
+                continue
+            baseline_indices = np.asarray(baseline_record["sample_indices"])
+            candidate_indices = np.asarray(candidate_record["sample_indices"])
+            common, baseline_positions, candidate_positions = np.intersect1d(
+                baseline_indices,
+                candidate_indices,
+                assume_unique=True,
+                return_indices=True,
+            )
+            if not len(common):
+                continue
+            y = np.asarray(baseline_record["target"])[baseline_positions]
+            candidate_y = np.asarray(candidate_record["target"])[candidate_positions]
+            if not np.array_equal(y, candidate_y):
+                raise ValueError(f"target mismatch for paired task {task.name}")
+            baseline_prediction = np.asarray(baseline_record["prediction"])[baseline_positions]
+            candidate_prediction = np.asarray(candidate_record["prediction"])[candidate_positions]
+            baseline_score = baseline_record["score"]
+            candidate_score = candidate_record["score"]
+            if baseline_score is not None:
+                baseline_score = np.asarray(baseline_score)[baseline_positions]
+            if candidate_score is not None:
+                candidate_score = np.asarray(candidate_score)[candidate_positions]
+            participants = np.asarray(baseline_record["participants"])[baseline_positions]
+            baseline_value = primary_value(
+                task, y, baseline_prediction, baseline_score
+            )
+            candidate_value = primary_value(
+                task, y, candidate_prediction, candidate_score
+            )
+            sign = 1.0 if task.kind == "classification" else -1.0
+            point = (
+                100.0
+                * sign
+                * (candidate_value - baseline_value)
+                / max(abs(baseline_value), 1e-12)
+            )
+            unique_participants = np.unique(participants)
+            groups = [
+                np.flatnonzero(participants == item) for item in unique_participants
+            ]
+            generator = np.random.default_rng(args.seed + 10_000 + task_index)
+            draws: list[float] = []
+            for _ in range(args.bootstrap_draws):
+                choices = generator.integers(0, len(groups), size=len(groups))
+                sampled = np.concatenate([groups[index] for index in choices])
+                sampled_y = y[sampled]
+                if task.classes == 2 and np.unique(sampled_y).size < 2:
+                    continue
+                baseline_draw = primary_value(
+                    task,
+                    sampled_y,
+                    baseline_prediction[sampled],
+                    baseline_score[sampled] if baseline_score is not None else None,
+                )
+                candidate_draw = primary_value(
+                    task,
+                    sampled_y,
+                    candidate_prediction[sampled],
+                    candidate_score[sampled] if candidate_score is not None else None,
+                )
+                draws.append(
+                    100.0
+                    * sign
+                    * (candidate_draw - baseline_draw)
+                    / max(abs(baseline_draw), 1e-12)
+                )
+            draw_array = np.asarray(draws, dtype=np.float64)
+            paired_rows.append(
+                {
+                    "baseline": baseline_name,
+                    "candidate": candidate_name,
+                    "task": task.name,
+                    "task_chinese": task.chinese_name,
+                    "metric": task.primary_metric,
+                    "baseline_value": baseline_value,
+                    "candidate_value": candidate_value,
+                    "relative_improvement_percent": point,
+                    "ci95_low_percent": float(np.quantile(draw_array, 0.025)),
+                    "ci95_high_percent": float(np.quantile(draw_array, 0.975)),
+                    "bootstrap_probability_improved": float(np.mean(draw_array > 0)),
+                    "valid_draws": int(len(draw_array)),
+                    "test_samples": int(len(common)),
+                    "test_participants": int(len(unique_participants)),
+                }
+            )
+        pd.DataFrame(paired_rows).to_csv(
+            args.output_dir / "paired_primary_bootstrap.csv",
             index=False,
             encoding="utf-8-sig",
         )

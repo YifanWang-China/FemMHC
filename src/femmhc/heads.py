@@ -44,6 +44,25 @@ class ClassificationHead(nn.Module):
         return ProbabilisticOutput(logits, probabilities)
 
 
+class LinearClassificationHead(nn.Module):
+    """A normalized linear probe that pushes supervision into the encoder."""
+
+    def __init__(self, embed_dim: int, n_classes: int) -> None:
+        super().__init__()
+        if n_classes < 2:
+            raise ValueError("classification requires at least two classes")
+        self.network = nn.Sequential(nn.LayerNorm(embed_dim), nn.Linear(embed_dim, n_classes))
+        self.register_buffer("calibration_temperature", torch.tensor(1.0))
+
+    def forward(self, embedding: torch.Tensor) -> ProbabilisticOutput:
+        logits = self.network(embedding)
+        probabilities = torch.softmax(
+            logits / self.calibration_temperature.clamp_min(1e-6),
+            dim=-1,
+        )
+        return ProbabilisticOutput(logits, probabilities)
+
+
 class OrdinalHead(nn.Module):
     """Cumulative-link ordinal head with guaranteed ordered thresholds."""
 
